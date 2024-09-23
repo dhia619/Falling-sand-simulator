@@ -1,11 +1,12 @@
 import pygame
 import numpy as np
+import random
 
 pygame.init()
 
 clock = pygame.time.Clock()
 
-screen_width,screen_height = 700,500
+screen_width,screen_height = 1000,700
 screen = pygame.display.set_mode((screen_width,screen_height))
 pygame.display.set_caption("Falling sand simulation")
 
@@ -13,88 +14,152 @@ pygame.display.set_caption("Falling sand simulation")
 BLACK = (0,0,0)
 ORANGE = (252, 205, 42)
 BLUE = (67, 121, 242)
+GRAY = (142, 172, 205)
+SAND = [(252, 205, 42),(210, 180, 140),(222, 184, 135),(238, 232, 170)]
 
 #drawing variables
-cell_size = 10
+cell_size = 4
 
 #intialize the environnement matrix
 world_matrix = np.zeros((screen_height//cell_size,screen_width//cell_size))
 
-
 def render_world(surface,world_matrix):
+    block_color = ORANGE
     for i in range(len(world_matrix)):
         for j in range(len(world_matrix[i])):
-            #draw sand block
-            if world_matrix[i,j] == 1:
-                pygame.draw.rect(surface,(ORANGE),(j*cell_size,i*cell_size,cell_size,cell_size))
-            elif world_matrix[i,j] == 2:
-                pygame.draw.rect(surface,(BLUE),(j*cell_size,i*cell_size,cell_size,cell_size))
+            if world_matrix[i,j] != 0:
+                # Sand
+                if world_matrix[i,j] < len(SAND):block_color = SAND[int(world_matrix[i,j])]
+                # Water
+                elif world_matrix[i,j] == 10:block_color = BLUE
+                # Stone
+                elif world_matrix[i,j] == 11:block_color = GRAY
+                #draw the block
+                pygame.draw.rect(surface,(block_color),(j*cell_size,i*cell_size,cell_size,cell_size))
 
 
-def place_block(world_matrix,block_index):
+brush_size = 2
+
+def place_block(world_matrix, block_index):
     mouse_pos = pygame.mouse.get_pos()
-    mapped_x,mapped_y = mouse_pos[0]//cell_size,mouse_pos[1]//cell_size
-    world_matrix[mapped_y,mapped_x] = block_index
+    mapped_x, mapped_y = mouse_pos[0] // cell_size, mouse_pos[1] // cell_size
+    mapped_x = min(mapped_x, screen_width // cell_size - 1)  # Prevent cursor out of the window
+    mapped_y = min(mapped_y, screen_height // cell_size - 1)
 
+    # Draw a block area based on the brush size
+    for i in range(-brush_size // 2, brush_size // 2 + 1):
+        for j in range(-brush_size // 2, brush_size // 2 + 1):
+            new_x = mapped_x + j
+            new_y = mapped_y + i
+            if 0 <= new_x < screen_width // cell_size and 0 <= new_y < screen_height // cell_size:
+                world_matrix[new_y, new_x] = block_index
+
+def move_block(world_matrix,i,j,new_i,new_j,block):
+    if world_matrix[new_i,new_j] == 0:
+        world_matrix[new_i,new_j] = block
+        world_matrix[i,j] = 0
+        return True
+    
+    elif i < screen_height//cell_size - 1 and world_matrix[i+1,j] == 10 and block != 10:
+        world_matrix[i+1,j] = block
+        world_matrix[i,j] = 10
+        return True
+
+    return False
+
+def block_behaviour(world_matrix,visited,block,i,j):
+
+    """ i : y coordinate 
+        j : x coordinate
+    """
+
+    if block < 9:  # Sand block
+        if i < len(world_matrix) - 1:  # Ensure there's space below to move down
+
+            # Right border: block can only move down or down-left
+            if j == screen_width // cell_size - 1:
+                if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
+                    return
+                elif move_block(world_matrix, i, j, i + 1, j - 1, block):  # Move down-left
+                    return
+
+            # Left border: block can only move down or down-right
+            elif j == 0:
+                if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
+                    return
+                elif move_block(world_matrix, i, j, i + 1, j + 1, block):  # Move down-right
+                    return
+
+            # General case: block can move down, down-right, or down-left
+            else:
+                if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
+                    return
+                elif move_block(world_matrix, i, j, i + 1, j + 1, block) and np.random.rand() > 0.5:  # Down-right
+                    return
+                elif move_block(world_matrix, i, j, i + 1, j - 1, block):  # Down-left
+                    return
+
+                     
+    if block == 10 and not visited[i, j]:  # Water block and hasn't moved yet
+        # Check if the block can move down 
+        if i < len(world_matrix) - 1 and move_block(world_matrix,i,j,i+1,j,block):
+            visited[i + 1, j] = 1
+        else:
+            # Randomize left/right movement to avoid oscillation
+            direction = random.choice(['left', 'right'])
+            
+            if direction == 'left' and j > 0:
+                # Move horizontally left
+                if move_block(world_matrix,i,j,i,j-1,block):
+                    visited[i, j - 1] = 1
+            elif direction == 'right' and j < len(world_matrix[i]) - 1:
+                # Move horizontally right
+                if move_block(world_matrix,i,j,i,j+1,block):
+                    visited[i, j + 1] = 1
 
 def update_world(world_matrix):
 
-    for i in range(len(world_matrix)-1,0,-1):
-        for j in range(len(world_matrix[i])-1,0,-1):
+    # Create a "visited" matrix to track blocks that have moved in the current update
+    visited = np.zeros_like(world_matrix)
+
+    for i in range(len(world_matrix)-1,-1,-1):
+        for j in range(len(world_matrix[i])-1,-1,-1):
             block = world_matrix[i,j]
-            if block == 1: # Sand block
-                if i < len(world_matrix)-1 and j < len(world_matrix[i])-1 and j > 0:
-                    if world_matrix[i+1,j] == 0:
-                        world_matrix[i+1,j] = 1
-                        world_matrix[i,j] = 0
-                    elif world_matrix[i+1,j+1] == 0 and np.random.rand() > 0.5:
-                        world_matrix[i+1,j+1] = 1
-                        world_matrix[i,j] = 0
-                    elif world_matrix[i+1,j-1] == 0:
-                        world_matrix[i+1,j-1] = 1
-                        world_matrix[i,j] = 0
-            if block == 2:  # Water block
-                # Check if the block can move down
-                if i < len(world_matrix) - 1:
-                    if world_matrix[i + 1, j] == 0:  # Empty below
-                        world_matrix[i + 1, j] = 2
-                        world_matrix[i, j] = 0
-                    # If blocked below, try to move left or right
-                    elif j > 0 and world_matrix[i + 1, j - 1] == 0:  # Down-left
-                        world_matrix[i + 1, j - 1] = 2
-                        world_matrix[i, j] = 0
-                    elif j < len(world_matrix[i]) - 1 and world_matrix[i + 1, j + 1] == 0:  # Down-right
-                        world_matrix[i + 1, j + 1] = 2
-                        world_matrix[i, j] = 0
-                    # If blocked below and diagonals, check left and right for horizontal flow
-                    elif j > 0 and world_matrix[i, j - 1] == 0:  # Left
-                        world_matrix[i, j - 1] = 2
-                        world_matrix[i, j] = 0
-                    elif j < len(world_matrix[i]) - 1 and world_matrix[i, j + 1] == 0:  # Right
-                        world_matrix[i, j + 1] = 2
-                        world_matrix[i, j] = 0
+            if block != 0:
+                block_behaviour(world_matrix,visited,block,i,j)
+                continue
+
+selected_block = 1
 
 on = True
 
 #game loop
 while on:
-
     #fill background with black
     screen.fill(BLACK)
-
     #check for mouse click
     mouse = pygame.mouse.get_pressed()
-    #check for left click
+    # left click : draw
     if mouse[0]:
-        place_block(world_matrix,1)
+        if selected_block < 10:
+            selected_block = random.randint(0,len(SAND)-1)
+        place_block(world_matrix,selected_block)
+    # right click : erase
     if mouse[2]:
-        place_block(world_matrix,2)
+        place_block(world_matrix,0)
 
+    #check for keyboard press
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_1]:
+        selected_block = random.randint(0,len(SAND)-1) # Sand
+    if keys[pygame.K_2]:
+        selected_block = 10 # Water
+    if keys[pygame.K_3]:
+        selected_block = 11 # Stone
     #draw the canvas
     render_world(screen,world_matrix)
 
     update_world(world_matrix)
-
 
     for event in pygame.event.get():
         
@@ -103,7 +168,7 @@ while on:
         
 
 
-    clock.tick(120)
+    clock.tick(60)
     pygame.display.flip()
 
 
