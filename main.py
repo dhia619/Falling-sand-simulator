@@ -25,6 +25,8 @@ simulation_display_width,simulation_display_height = screen_width-100,screen_hei
 
 #intialize the environnement matrix
 world_matrix = np.zeros((simulation_display_height//cell_size,simulation_display_width//cell_size))
+steps = 1
+stepw = 1
 
 #tools
 tool_start_y = 20
@@ -33,6 +35,9 @@ fire = Tool("assets/fire.png",screen_width-75,tool_start_y+70)
 sand = Tool("assets/sand.png",screen_width-75,tool_start_y+150)
 stone = Tool("assets/stone.png",screen_width-75,tool_start_y+230)
 tools = [water,fire,sand,stone]
+
+#simulation info
+font = pygame.font.SysFont("courrier",20)
 
 def render_world(surface,world_matrix):
     block_color = ORANGE
@@ -49,7 +54,7 @@ def render_world(surface,world_matrix):
                 pygame.draw.rect(surface,(block_color),(j*cell_size,i*cell_size,cell_size,cell_size))
 
 
-brush_size = 2
+brush_size = 10
 
 def place_block(world_matrix, block_index, mouse_pos):
     if mouse_pos[0] < simulation_display_width:  # Ensure cursor is in the simulation area
@@ -78,55 +83,67 @@ def move_block(world_matrix,i,j,new_i,new_j,block):
 
     return False
 
-def block_behaviour(world_matrix,visited,block,i,j):
-
+def block_behaviour(world_matrix, visited, block, i, j):
     """ i : y coordinate 
         j : x coordinate
     """
-
+    global steps,stepw
     if block < 9:  # Sand block
-        if i < len(world_matrix) - 1:  # Ensure there's space below to move down
+        if steps >= 5:
+            steps = 1
+        steps += 1        
+        for step in range(steps):
+            if i < len(world_matrix) - 1:  # Ensure there's space below to move down
 
-            # Right border: block can only move down or down-left
-            if j == simulation_display_width // cell_size - 1:
-                if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
-                    return
-                elif move_block(world_matrix, i, j, i + 1, j - 1, block):  # Move down-left
-                    return
+                # Right border: block can only move down or down-left
+                if j == simulation_display_width // cell_size - 1:
+                    if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
+                        return
+                    elif move_block(world_matrix, i, j, i + 1, j - 1, block):  # Move down-left
+                        return
 
-            # Left border: block can only move down or down-right
-            elif j == 0:
-                if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
-                    return
-                elif move_block(world_matrix, i, j, i + 1, j + 1, block):  # Move down-right
-                    return
+                # Left border: block can only move down or down-right
+                elif j == 0:
+                    if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
+                        return
+                    elif move_block(world_matrix, i, j, i + 1, j + 1, block):  # Move down-right
+                        return
 
-            # General case: block can move down, down-right, or down-left
-            else:
-                if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
-                    return
-                elif move_block(world_matrix, i, j, i + 1, j + 1, block) and np.random.rand() > 0.5:  # Down-right
-                    return
-                elif move_block(world_matrix, i, j, i + 1, j - 1, block):  # Down-left
-                    return
+                # General case: block can move down, down-right, or down-left
+                else:
+                    if move_block(world_matrix, i, j, i + 1, j, block):  # Move down
+                        return
+                    elif move_block(world_matrix, i, j, i + 1, j + 1, block) and np.random.rand() > 0.5:  # Down-right
+                        return
+                    elif move_block(world_matrix, i, j, i + 1, j - 1, block):  # Down-left
+                        return
 
-                     
     if block == 10 and not visited[i, j]:  # Water block and hasn't moved yet
+        # Allow water to move faster by moving multiple steps vertically and horizontally
+        if stepw >= 5:
+            stepw = 1
+        stepw += 1
+        
         # Check if the block can move down 
-        if i < len(world_matrix) - 1 and move_block(world_matrix,i,j,i+1,j,block):
-            visited[i + 1, j] = 1
-        else:
-            # Randomize left/right movement to avoid oscillation
-            direction = choice(['left', 'right'])
-            
-            if direction == 'left' and j > 0:
-                # Move horizontally left
-                if move_block(world_matrix,i,j,i,j-1,block):
-                    visited[i, j - 1] = 1
-            elif direction == 'right' and j < len(world_matrix[i]) - 1:
-                # Move horizontally right
-                if move_block(world_matrix,i,j,i,j+1,block):
-                    visited[i, j + 1] = 1
+        for step in range(stepw):
+            if i < len(world_matrix) - 1 and move_block(world_matrix, i, j, i + 1, j, block):
+                visited[i + 1, j] = 1
+                i += 1  # Update the position for the next step
+            else:
+                # Randomize left/right movement to avoid oscillation
+                direction = choice(['left', 'right'])
+                
+                if direction == 'left' and j > 0:
+                    # Move horizontally left
+                    if move_block(world_matrix, i, j, i, j - 1, block):
+                        visited[i, j - 1] = 1
+                        j -= 1  # Update the position
+                elif direction == 'right' and j < len(world_matrix[i]) - 1:
+                    # Move horizontally right
+                    if move_block(world_matrix, i, j, i, j + 1, block):
+                        visited[i, j + 1] = 1
+                        j += 1  # Update the position
+
 
 def update_world(world_matrix):
 
@@ -158,6 +175,12 @@ while on:
     #draw the tools
     for t in tools:
         t.draw(screen,mouse_pos)
+
+    #display simulation info
+    fps_surface = font.render(f"FPS : {round(clock.get_fps())}",True,WHITE)
+    blocks_surface = font.render(f"Blocks : {np.all(world_matrix!=0)}",True,WHITE)
+    screen.blit(fps_surface,(screen_width-90,screen_height//2))
+    screen.blit(blocks_surface,(screen_width-90,screen_height//2+fps_surface.get_height()+10))    
 
     #check for mouse click
     mouse = pygame.mouse.get_pressed()
